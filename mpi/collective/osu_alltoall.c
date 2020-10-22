@@ -18,6 +18,8 @@ main (int argc, char *argv[])
     double timer=0.0;
     double avg_time = 0.0, max_time = 0.0, min_time = 0.0;
     char * sendbuf = NULL, * recvbuf = NULL;
+    char * sendbuf_gpu = NULL, * recvbuf_gpu = NULL;
+    int is_hh = 0, is_dd = 0;
     int po_ret;
     size_t bufsize;
     options.bench = COLLECTIVE;
@@ -70,12 +72,42 @@ main (int argc, char *argv[])
 
     bufsize = options.max_message_size * numprocs;
 
+    if (options.cpy_dtoh) {
+        if (cudaMalloc((void **) &recvbuf_gpu, bufsize)) {
+            fprintf(stderr, "Error allocating receiving GPU memory %lu\n",
+                    options.max_message_size);
+        }
+        if (cudaMalloc((void **) &sendbuf_gpu, bufsize)) {
+            fprintf(stderr, "Error allocating sending GPU memory %lu\n",
+                    options.max_message_size);
+        }
+
+        if (options.src == 'H' && options.dst == 'H') {
+            if (rank == 0) {
+                printf("** Host to Host\n");
+            }
+            is_hh = 1;
+        } else if (options.src == 'D' && options.dst == 'D') {
+            if (rank == 0) {
+                printf("** Device to Device\n");
+            }
+            is_dd = 1;
+        }
+    }
+
     if (allocate_memory_coll((void**)&sendbuf, bufsize, options.accel)) {
         fprintf(stderr, "Could Not Allocate Memory [rank %d]\n", rank);
         MPI_CHECK(MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE));
     }
 
-    set_buffer(sendbuf, options.accel, 1, bufsize);
+    if (options.cpy_dtoh && is_hh) {
+        enum accel_type old_accel = options.accel;
+        options.accel = CUDA;
+        set_buffer(sendbuf_gpu, options.accel, 1, bufsize);
+        options.accel = old_accel;
+    } else {
+        set_buffer(sendbuf, options.accel, 1, bufsize);
+    }
 
     if (allocate_memory_coll((void**)&recvbuf, options.max_message_size * numprocs,
                 options.accel)) {
@@ -97,8 +129,18 @@ main (int argc, char *argv[])
 
         for (i=0; i < options.iterations + options.skip ; i++) {
             t_start = MPI_Wtime();
+
+            if (options.cpy_dtoh && is_hh) {
+                cudaMemcpy(sendbuf, sendbuf_gpu, bufsize, cudaMemcpyDeviceToHost);
+                cudaDeviceSynchronize();
+            }
             MPI_CHECK(MPI_Alltoall(sendbuf, size, MPI_CHAR, recvbuf, size, MPI_CHAR,
                     MPI_COMM_WORLD));
+            if (options.cpy_dtoh && is_hh) {
+                cudaMemcpy(recvbuf_gpu, recvbuf, bufsize, cudaMemcpyHostToDevice);
+                cudaDeviceSynchronize();
+            }
+
             t_stop = MPI_Wtime();
 
             if (i >= options.skip) {

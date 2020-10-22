@@ -20,7 +20,10 @@
 MPI_Request * mbw_request;
 MPI_Status * mbw_reqstat;
 
-double calc_bw(int rank, int size, int num_pairs, int window_size, char *s_buf, char *r_buf);
+double calc_bw(int rank, int size, int num_pairs, int window_size,
+               int is_hh, char *s_buf, char *r_buf,
+               char *s_gpubuf, char *r_gpubuf);
+
 
 static int loop_override;
 static int skip_override;
@@ -28,8 +31,10 @@ static int skip_override;
 int main(int argc, char *argv[])
 {
     char *s_buf, *r_buf;
+    char *s_gpubuf, *r_gpubuf;
     int numprocs, rank;
     int c, curr_size;
+    int is_hh = 0, is_dd = 0;
 
     loop_override = 0;
     skip_override = 0;
@@ -112,6 +117,30 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
+    if (options.cpy_dtoh) {
+        if (cudaMalloc((void **) &r_gpubuf, options.max_message_size)) {
+            fprintf(stderr, "Error allocating receiving GPU memory %lu\n", options.max_message_size);
+            return 1;
+        }
+        if (cudaMalloc((void **) &s_gpubuf, options.max_message_size)) {
+            fprintf(stderr, "Error allocating sending GPU memory %lu\n", options.max_message_size);
+            return 1;
+        }
+
+        if (options.src == 'H' && options.dst == 'H') {
+            if (rank == 0) {
+                printf("** Host to Host\n");
+            }
+            is_hh = 1;
+        } else if (options.src == 'D' && options.dst == 'D') {
+            if (rank == 0) {
+                printf("** GPU to GPU\n");
+            }
+            is_dd = 1;
+        }
+    }
+
+
     if(rank == 0) {
         fprintf(stdout, HEADER);
         print_header(rank, BW);
@@ -184,7 +213,7 @@ int main(int argc, char *argv[])
 
            for(i = 0; i < WINDOW_SIZES_COUNT; i++) {
                bandwidth_results[j][i] = calc_bw(rank, curr_size, options.pairs,
-                       window_array[i], s_buf, r_buf);
+                       window_array[i], is_hh, s_buf, r_buf, s_gpubuf, r_gpubuf);
 
                if(rank == 0) {
                    fprintf(stdout, "  %10.*f", FLOAT_PRECISION,
@@ -233,7 +262,8 @@ int main(int argc, char *argv[])
        for(curr_size = options.min_message_size; curr_size <= options.max_message_size; curr_size *= 2) {
            double bw, rate;
 
-           bw = calc_bw(rank, curr_size, options.pairs, options.window_size, s_buf, r_buf);
+           bw = calc_bw(rank, curr_size, options.pairs, options.window_size, is_hh,
+                        s_buf, r_buf, s_gpubuf, r_gpubuf);
 
            if(rank == 0) {
                rate = 1e6 * bw / curr_size;
@@ -259,14 +289,24 @@ int main(int argc, char *argv[])
    return EXIT_SUCCESS;
 }
 
-double calc_bw(int rank, int size, int num_pairs, int window_size, char *s_buf,
-        char *r_buf)
+double calc_bw(int rank, int size, int num_pairs, int window_size,
+               int is_hh, char *s_buf, char *r_buf,
+               char *s_gpubuf, char *r_gpubuf)
 {
     double t_start = 0, t_end = 0, t = 0, sum_time = 0, bw = 0;
     int i, j, target;
 
-	set_buffer_pt2pt(s_buf, rank, options.accel, 'a', size);
-	set_buffer_pt2pt(r_buf, rank, options.accel, 'b', size);
+    if (options.cpy_dtoh && is_hh) {
+        options.src = 'D';
+        options.dst = 'D';
+        set_buffer_pt2pt(s_gpubuf, rank, options.accel,
+                         'a', size);
+        options.src = 'H';
+        options.dst = 'H';
+    } else {
+        set_buffer_pt2pt(s_buf, rank, options.accel, 'a', size);
+    }
+    set_buffer_pt2pt(r_buf, rank, options.accel, 'b', size);
 
     MPI_CHECK(MPI_Barrier(MPI_COMM_WORLD));
 
@@ -279,6 +319,11 @@ double calc_bw(int rank, int size, int num_pairs, int window_size, char *s_buf,
                 t_start = MPI_Wtime();
             }
 
+            if (options.cpy_dtoh && is_hh) {
+                cudaMemcpy(s_buf, s_gpubuf, size, cudaMemcpyDeviceToHost);
+                cudaDeviceSynchronize();
+            }
+
             for(j = 0; j < window_size; j++) {
                 MPI_CHECK(MPI_Isend(s_buf, size, MPI_CHAR, target, 100, MPI_COMM_WORLD,
                         mbw_request + j));
@@ -286,12 +331,16 @@ double calc_bw(int rank, int size, int num_pairs, int window_size, char *s_buf,
             MPI_CHECK(MPI_Waitall(window_size, mbw_request, mbw_reqstat));
             MPI_CHECK(MPI_Recv(r_buf, 4, MPI_CHAR, target, 101, MPI_COMM_WORLD,
                     &mbw_reqstat[0]));
+
+            if (options.cpy_dtoh && is_hh) {
+                cudaMemcpy(r_gpubuf, r_buf, size, cudaMemcpyHostToDevice);
+                cudaDeviceSynchronize();
+            }
         }
 
         t_end = MPI_Wtime();
         t = t_end - t_start;
     }
-
     else if(rank < num_pairs * 2) {
         target = rank - num_pairs;
 
@@ -306,6 +355,16 @@ double calc_bw(int rank, int size, int num_pairs, int window_size, char *s_buf,
             }
 
             MPI_CHECK(MPI_Waitall(window_size, mbw_request, mbw_reqstat));
+            if (options.cpy_dtoh && is_hh) {
+                cudaMemcpy(r_gpubuf, r_buf, size, cudaMemcpyHostToDevice);
+                cudaDeviceSynchronize();
+            }
+
+            if (options.cpy_dtoh && is_hh) {
+                cudaMemcpy(s_buf, s_gpubuf, size, cudaMemcpyDeviceToHost);
+                cudaDeviceSynchronize();
+            }
+
             MPI_CHECK(MPI_Send(s_buf, 4, MPI_CHAR, target, 101, MPI_COMM_WORLD));
         }
     }
