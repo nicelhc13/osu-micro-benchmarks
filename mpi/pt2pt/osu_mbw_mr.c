@@ -21,7 +21,7 @@ MPI_Request * mbw_request;
 MPI_Status * mbw_reqstat;
 
 double calc_bw(int rank, int size, int num_pairs, int window_size,
-               int is_hh, char *s_buf, char *r_buf,
+               int is_hh, int is_dd, char *s_buf, char *r_buf,
                char *s_gpubuf, char *r_gpubuf);
 
 
@@ -213,7 +213,8 @@ int main(int argc, char *argv[])
 
            for(i = 0; i < WINDOW_SIZES_COUNT; i++) {
                bandwidth_results[j][i] = calc_bw(rank, curr_size, options.pairs,
-                       window_array[i], is_hh, s_buf, r_buf, s_gpubuf, r_gpubuf);
+                                                 window_array[i], is_hh, is_dd,
+                                                 s_buf, r_buf, s_gpubuf, r_gpubuf);
 
                if(rank == 0) {
                    fprintf(stdout, "  %10.*f", FLOAT_PRECISION,
@@ -262,8 +263,8 @@ int main(int argc, char *argv[])
        for(curr_size = options.min_message_size; curr_size <= options.max_message_size; curr_size *= 2) {
            double bw, rate;
 
-           bw = calc_bw(rank, curr_size, options.pairs, options.window_size, is_hh,
-                        s_buf, r_buf, s_gpubuf, r_gpubuf);
+           bw = calc_bw(rank, curr_size, options.pairs, options.window_size,
+                        is_hh, is_dd, s_buf, r_buf, s_gpubuf, r_gpubuf);
 
            if(rank == 0) {
                rate = 1e6 * bw / curr_size;
@@ -284,25 +285,36 @@ int main(int argc, char *argv[])
 
    free_memory_pt2pt_mul(s_buf, r_buf, rank, options.pairs);
 
+   if (options.cpy_dtoh) {
+       cudaFree(r_gpubuf);
+       cudaFree(s_gpubuf);
+   }
+
    MPI_CHECK(MPI_Finalize());
 
    return EXIT_SUCCESS;
 }
 
 double calc_bw(int rank, int size, int num_pairs, int window_size,
-               int is_hh, char *s_buf, char *r_buf,
+               int is_hh, int is_dd, char *s_buf, char *r_buf,
                char *s_gpubuf, char *r_gpubuf)
 {
     double t_start = 0, t_end = 0, t = 0, sum_time = 0, bw = 0;
     int i, j, target;
 
-    if (options.cpy_dtoh && is_hh) {
-        options.src = 'D';
-        options.dst = 'D';
-        set_buffer_pt2pt(s_gpubuf, rank, options.accel,
-                         'a', size);
-        options.src = 'H';
-        options.dst = 'H';
+    if (options.cpy_dtoh && (is_hh || is_dd)) {
+        cudaDeviceSynchronize();
+        if (is_hh) {
+            options.src = 'D';
+            options.dst = 'D';
+            set_buffer_pt2pt(s_gpubuf, rank, options.accel,
+                             'a', size);
+            options.src = 'H';
+            options.dst = 'H';
+        } else if (is_dd) {
+            set_buffer_pt2pt(s_gpubuf, rank, options.accel,
+                             'a', size);
+        }
     } else {
         set_buffer_pt2pt(s_buf, rank, options.accel, 'a', size);
     }
@@ -319,9 +331,12 @@ double calc_bw(int rank, int size, int num_pairs, int window_size,
                 t_start = MPI_Wtime();
             }
 
-            if (options.cpy_dtoh && is_hh) {
-                cudaMemcpy(s_buf, s_gpubuf, size, cudaMemcpyDeviceToHost);
-                cudaDeviceSynchronize();
+            if (options.cpy_dtoh) {
+                if (is_hh) {
+                    cudaMemcpy(s_buf, s_gpubuf, size, cudaMemcpyDeviceToHost);
+                } else if (is_dd) {
+                    cudaMemcpy(s_buf, s_gpubuf, size, cudaMemcpyDeviceToDevice);
+                }
             }
 
             for(j = 0; j < window_size; j++) {
@@ -332,9 +347,12 @@ double calc_bw(int rank, int size, int num_pairs, int window_size,
             MPI_CHECK(MPI_Recv(r_buf, 4, MPI_CHAR, target, 101, MPI_COMM_WORLD,
                     &mbw_reqstat[0]));
 
-            if (options.cpy_dtoh && is_hh) {
-                cudaMemcpy(r_gpubuf, r_buf, size, cudaMemcpyHostToDevice);
-                cudaDeviceSynchronize();
+            if (options.cpy_dtoh) {
+                if (is_hh) {
+                    cudaMemcpy(r_gpubuf, r_buf, size, cudaMemcpyHostToDevice);
+                } else if (is_dd) {
+                    cudaMemcpy(r_gpubuf, r_buf, size, cudaMemcpyDeviceToDevice);
+                }
             }
         }
 
@@ -355,14 +373,20 @@ double calc_bw(int rank, int size, int num_pairs, int window_size,
             }
 
             MPI_CHECK(MPI_Waitall(window_size, mbw_request, mbw_reqstat));
-            if (options.cpy_dtoh && is_hh) {
-                cudaMemcpy(r_gpubuf, r_buf, size, cudaMemcpyHostToDevice);
-                cudaDeviceSynchronize();
+            if (options.cpy_dtoh) {
+                if (is_hh) {
+                    cudaMemcpy(r_gpubuf, r_buf, size, cudaMemcpyHostToDevice);
+                } else if (is_dd) {
+                    cudaMemcpy(r_gpubuf, r_buf, size, cudaMemcpyDeviceToDevice);
+                }
             }
 
-            if (options.cpy_dtoh && is_hh) {
-                cudaMemcpy(s_buf, s_gpubuf, size, cudaMemcpyDeviceToHost);
-                cudaDeviceSynchronize();
+            if (options.cpy_dtoh) {
+                if (is_hh) {
+                    cudaMemcpy(s_buf, s_gpubuf, size, cudaMemcpyDeviceToHost);
+                } else if (is_dd) {
+                    cudaMemcpy(s_buf, s_gpubuf, size, cudaMemcpyDeviceToDevice);
+                }
             }
 
             MPI_CHECK(MPI_Send(s_buf, 4, MPI_CHAR, target, 101, MPI_COMM_WORLD));

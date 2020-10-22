@@ -123,12 +123,16 @@ main (int argc, char *argv[])
 
     /* Latency test */
     for(size = options.min_message_size; size <= options.max_message_size; size = (size ? size * 2 : 1)) {
-        if (options.cpy_dtoh && is_hh) {
-            options.src = 'D';
-            options.dst = 'D';
-            set_buffer_pt2pt(s_gpubuf, myid, options.accel, 'a', size);
-            options.src = 'H';
-            options.dst = 'H';
+        if (options.cpy_dtoh && (is_hh || is_dd)) {
+            if (is_hh) {
+              options.src = 'D';
+              options.dst = 'D';
+              set_buffer_pt2pt(s_gpubuf, myid, options.accel, 'a', size);
+              options.src = 'H';
+              options.dst = 'H';
+            } else {
+              set_buffer_pt2pt(s_gpubuf, myid, options.accel, 'a', size);
+            }
         } else {
             set_buffer_pt2pt(s_buf, myid, options.accel, 'a', size);
         }
@@ -147,16 +151,24 @@ main (int argc, char *argv[])
                     t_start = MPI_Wtime();
                 }
 
-                if (options.cpy_dtoh && is_hh) {
-                    cudaMemcpy(s_buf, s_gpubuf, size, cudaMemcpyDeviceToHost);
+                if (options.cpy_dtoh) {
+                    if (is_hh) {
+                        cudaMemcpy(s_buf, s_gpubuf, size, cudaMemcpyDeviceToHost);
+                    } else if (is_dd) {
+                        cudaMemcpy(s_buf, s_gpubuf, size, cudaMemcpyDeviceToDevice);
+                    }
                     cudaDeviceSynchronize();
                 }
 
                 MPI_CHECK(MPI_Send(s_buf, size, MPI_CHAR, 1, 1, MPI_COMM_WORLD));
                 MPI_CHECK(MPI_Recv(r_buf, size, MPI_CHAR, 1, 1, MPI_COMM_WORLD, &reqstat));
 
-                if (options.cpy_dtoh && is_hh) {
-                    cudaMemcpy(r_gpubuf, r_buf, size, cudaMemcpyHostToDevice);
+                if (options.cpy_dtoh) {
+                    if (is_hh) {
+                        cudaMemcpy(r_gpubuf, r_buf, size, cudaMemcpyHostToDevice);
+                    } else if (is_dd) {
+                        cudaMemcpy(r_gpubuf, r_buf, size, cudaMemcpyDeviceToDevice);
+                    }
                     cudaDeviceSynchronize();
                 }
             }
@@ -167,13 +179,21 @@ main (int argc, char *argv[])
         else if(myid == 1) {
             for(i = 0; i < options.iterations + options.skip; i++) {
                 MPI_CHECK(MPI_Recv(r_buf, size, MPI_CHAR, 0, 1, MPI_COMM_WORLD, &reqstat));
-                if (options.cpy_dtoh && is_hh) {
-                    cudaMemcpy(r_gpubuf, r_buf, size, cudaMemcpyHostToDevice);
+                if (options.cpy_dtoh) {
+                    if (is_hh) {
+                        cudaMemcpy(r_gpubuf, r_buf, size, cudaMemcpyHostToDevice);
+                    } else if (is_dd) {
+                        cudaMemcpy(r_gpubuf, r_buf, size, cudaMemcpyDeviceToDevice);
+                    }
                     cudaDeviceSynchronize();
                 }
 
-                if (options.cpy_dtoh && is_hh) {
-                    cudaMemcpy(s_buf, s_gpubuf, size, cudaMemcpyDeviceToHost);
+                if (options.cpy_dtoh) {
+                    if (is_hh) {
+                        cudaMemcpy(s_buf, s_gpubuf, size, cudaMemcpyDeviceToHost);
+                    } else if (is_dd) {
+                        cudaMemcpy(s_buf, s_gpubuf, size, cudaMemcpyDeviceToDevice);
+                    }
                     cudaDeviceSynchronize();
                 }
 

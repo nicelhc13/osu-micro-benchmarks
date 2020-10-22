@@ -100,7 +100,7 @@ main (int argc, char *argv[])
         MPI_CHECK(MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE));
     }
 
-    if (options.cpy_dtoh && is_hh) {
+    if (options.cpy_dtoh && (is_hh || is_dd)) {
         enum accel_type old_accel = options.accel;
         options.accel = CUDA;
         set_buffer(sendbuf_gpu, options.accel, 1, bufsize);
@@ -130,15 +130,25 @@ main (int argc, char *argv[])
         for (i=0; i < options.iterations + options.skip ; i++) {
             t_start = MPI_Wtime();
 
-            if (options.cpy_dtoh && is_hh) {
-                cudaMemcpy(sendbuf, sendbuf_gpu, bufsize, cudaMemcpyDeviceToHost);
-                cudaDeviceSynchronize();
+            if (options.cpy_dtoh) {
+                if (is_hh) {
+                    cudaMemcpy(sendbuf, sendbuf_gpu,
+                               bufsize, cudaMemcpyDeviceToHost);
+                } else if (is_dd) {
+                    cudaMemcpy(sendbuf, sendbuf_gpu,
+                               bufsize, cudaMemcpyDeviceToDevice);
+                }
             }
             MPI_CHECK(MPI_Alltoall(sendbuf, size, MPI_CHAR, recvbuf, size, MPI_CHAR,
                     MPI_COMM_WORLD));
-            if (options.cpy_dtoh && is_hh) {
-                cudaMemcpy(recvbuf_gpu, recvbuf, bufsize, cudaMemcpyHostToDevice);
-                cudaDeviceSynchronize();
+            if (options.cpy_dtoh) {
+                if (is_hh) {
+                    cudaMemcpy(recvbuf_gpu, recvbuf,
+                               bufsize, cudaMemcpyHostToDevice);
+                } else if (is_dd) {
+                    cudaMemcpy(recvbuf_gpu, recvbuf,
+                               bufsize, cudaMemcpyDeviceToDevice);
+                }
             }
 
             t_stop = MPI_Wtime();
@@ -164,6 +174,11 @@ main (int argc, char *argv[])
 
     free_buffer(sendbuf, options.accel);
     free_buffer(recvbuf, options.accel);
+
+    if (options.cpy_dtoh) {
+        cudaFree(sendbuf_gpu);
+        cudaFree(recvbuf_gpu);
+    }
 
     MPI_CHECK(MPI_Finalize());
 
