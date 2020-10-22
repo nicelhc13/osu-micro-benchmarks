@@ -265,6 +265,8 @@ struct options_t {
     int window_varied;
     int print_rate;
     int pairs;
+
+    int cpy_dtoh;
 };
 
 struct bad_usage_t{

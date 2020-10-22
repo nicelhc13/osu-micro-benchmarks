@@ -10,8 +10,6 @@
  */
 #include <osu_util_mpi.h>
 
-#define CPY_TO_GPU 1
-
 int
 main (int argc, char *argv[])
 {
@@ -19,10 +17,10 @@ main (int argc, char *argv[])
     int size;
     MPI_Status reqstat;
     char *s_buf, *r_buf;
-#if CPY_TO_GPU==1
     char *r_gpubuf;
     char *s_gpubuf;
-#endif
+    int isHH = 0, isDD = 0;
+
     double t_start = 0.0, t_end = 0.0;
     int po_ret = 0;
     options.bench = PT2PT;
@@ -98,45 +96,44 @@ main (int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
-#if CPY_TO_GPU==1
-    if (cudaMalloc((void **) &r_gpubuf, options.max_message_size)) {
-      fprintf(stderr, "Error allocating receiving GPU memory %lu\n", options.max_message_size);
-      return 1;
-    }
-    if (cudaMalloc((void **) &s_gpubuf, options.max_message_size)) {
-      fprintf(stderr, "Error allocating sending GPU memory %lu\n", options.max_message_size);
-      return 1;
-    }
+    if (options.cpy_dtoh) {
+        if (cudaMalloc((void **) &r_gpubuf, options.max_message_size)) {
+            fprintf(stderr, "Error allocating receiving GPU memory %lu\n", options.max_message_size);
+            return 1;
+        }
+        if (cudaMalloc((void **) &s_gpubuf, options.max_message_size)) {
+            fprintf(stderr, "Error allocating sending GPU memory %lu\n", options.max_message_size);
+            return 1;
+        }
 
-    int isHH = 0, isDD = 0;
-    if (options.src == 'H' && options.dst == 'H') {
-      printf("Host to GPU\n");
-      isHH = 1;
-    } else if (options.src == 'D' && options.dst == 'D') {
-      printf("GPU to GPU\n");
-      isDD = 1;
+        if (options.src == 'H' && options.dst == 'H') {
+            printf("** Host to GPU\n");
+            isHH = 1;
+        } else if (options.src == 'D' && options.dst == 'D') {
+            printf("** GPU to GPU\n");
+            isDD = 1;
+        }
     }
-#endif
 
     print_header(myid, LAT);
 
     /* Latency test */
     for(size = options.min_message_size; size <= options.max_message_size; size = (size ? size * 2 : 1)) {
-#if CPY_TO_GPU==1
-      if (isHH) {
-        options.src = 'D';
-        options.dst = 'D';
-        set_buffer_pt2pt(s_gpubuf, myid, options.accel, 'a', size);
-        cudaMemcpy(s_buf, s_gpubuf, size, cudaMemcpyDeviceToHost);
-        options.src = 'H';
-        options.dst = 'H';
-        cudaDeviceSynchronize();
-      } else {
-        set_buffer_pt2pt(s_buf, myid, options.accel, 'a', size);
-      }
-#else
-        set_buffer_pt2pt(s_buf, myid, options.accel, 'a', size);
-#endif
+        if (options.cpy_dtoh) {
+            if (isHH) {
+                options.src = 'D';
+                options.dst = 'D';
+                set_buffer_pt2pt(s_gpubuf, myid, options.accel, 'a', size);
+                cudaMemcpy(s_buf, s_gpubuf, size, cudaMemcpyDeviceToHost);
+                options.src = 'H';
+                options.dst = 'H';
+                cudaDeviceSynchronize();
+            } else {
+                set_buffer_pt2pt(s_buf, myid, options.accel, 'a', size);
+            }
+        } else {
+            set_buffer_pt2pt(s_buf, myid, options.accel, 'a', size);
+        }
         set_buffer_pt2pt(r_buf, myid, options.accel, 'b', size);
 
         if(size > LARGE_MESSAGE_SIZE) {
@@ -155,17 +152,12 @@ main (int argc, char *argv[])
                 MPI_CHECK(MPI_Send(s_buf, size, MPI_CHAR, 1, 1, MPI_COMM_WORLD));
                 MPI_CHECK(MPI_Recv(r_buf, size, MPI_CHAR, 1, 1, MPI_COMM_WORLD, &reqstat));
 
-#if CPY_TO_GPU==1
-                if (isHH) {
-                  cudaMemcpy(r_gpubuf, r_buf, size, cudaMemcpyHostToDevice);
-                  cudaDeviceSynchronize();
+                if (options.cpy_dtoh) {
+                    if (isHH) {
+                        cudaMemcpy(r_gpubuf, r_buf, size, cudaMemcpyHostToDevice);
+                        cudaDeviceSynchronize();
+                    }
                 }
-#if 0
-                else if (isDD) {
-                  cudaMemcpy(r_gpubuf, r_buf, size, cudaMemcpyDeviceToDevice);
-                }
-#endif
-#endif
             }
 
             t_end = MPI_Wtime();
@@ -174,17 +166,12 @@ main (int argc, char *argv[])
         else if(myid == 1) {
             for(i = 0; i < options.iterations + options.skip; i++) {
                 MPI_CHECK(MPI_Recv(r_buf, size, MPI_CHAR, 0, 1, MPI_COMM_WORLD, &reqstat));
-#if CPY_TO_GPU==1
-                if (isHH) {
-                  cudaMemcpy(r_gpubuf, r_buf, size, cudaMemcpyHostToDevice);
-                  cudaDeviceSynchronize();
+                if (options.cpy_dtoh) {
+                    if (isHH) {
+                        cudaMemcpy(r_gpubuf, r_buf, size, cudaMemcpyHostToDevice);
+                        cudaDeviceSynchronize();
+                    }
                 }
-#if 0
-                else if (isDD) {
-                  cudaMemcpy(r_gpubuf, r_buf, size, cudaMemcpyDeviceToDevice);
-                }
-#endif
-#endif
 
                 MPI_CHECK(MPI_Send(s_buf, size, MPI_CHAR, 0, 1, MPI_COMM_WORLD));
             }
@@ -201,10 +188,10 @@ main (int argc, char *argv[])
 
     free_memory(s_buf, r_buf, myid);
 
-#if CPY_TO_GPU==1
-    cudaFree(r_gpubuf);
-    cudaFree(s_gpubuf);
-#endif
+    if (options.cpy_dtoh) {
+        cudaFree(r_gpubuf);
+        cudaFree(s_gpubuf);
+    }
     MPI_CHECK(MPI_Finalize());
 
     if (NONE != options.accel) {

@@ -403,7 +403,8 @@ int process_options (int argc, char *argv[])
             {"cuda-target",     required_argument,  0,  'r'},
             {"print-rate",      required_argument,  0,  'R'},
             {"num-pairs",       required_argument,  0,  'p'},
-            {"vary-window",     required_argument,  0,  'V'}
+            {"vary-window",     required_argument,  0,  'V'},
+            {"copy-to-host",    no_argument,        0,  'c'}
             
     };
 
@@ -412,41 +413,41 @@ int process_options (int argc, char *argv[])
     if (options.bench == PT2PT) {
         if (accel_enabled) {
             if (options.subtype == LAT_MT) {
-                optstring = "+:x:i:t:m:d:hv";
+                optstring = "+:x:i:t:m:d:hvc";
             } else if (options.subtype == LAT_MP) {
-                optstring = "+:x:i:t:m:d:hv";
+                optstring = "+:x:i:t:m:d:hvc";
             } else if (options.subtype == BW) {
-                optstring = "+:x:i:t:m:d:W:hv";
+                optstring = "+:x:i:t:m:d:W:c:hvc";
             } else {
-                optstring = "+:x:i:m:d:hv";
+                optstring = "+:x:i:m:d:hvc";
             }
         } else{
             if (options.subtype == LAT_MT) {
-                optstring = "+:hvm:x:i:t:";
+                optstring = "+:hvcm:x:i:t:";
             } else if (options.subtype == LAT_MP) {
-                optstring = "+:hvm:x:i:t:";
+                optstring = "+:hvcm:x:i:t:";
             } else if (options.subtype == BW) {
-                optstring = "+:hvm:x:i:t:W:";
+                optstring = "+:hvcm:x:i:t:W:";
             } else {
-                optstring = "+:hvm:x:i:";
+                optstring = "+:hvcm:x:i:";
             }
         }
     } else if (options.bench == COLLECTIVE) {
         if (options.subtype == LAT) { /* Blocking */
-            optstring = "+:hvfm:i:x:M:a:";
+            optstring = "+:hvfcm:i:x:M:a:";
             if (accel_enabled) {
-                optstring = (CUDA_KERNEL_ENABLED) ? "+:d:hvfm:i:x:M:r:a:" : "+:d:hvfm:i:x:M:a:";
+                optstring = (CUDA_KERNEL_ENABLED) ? "+:d:hvfcm:i:x:M:r:a:" : "+:d:hvfcm:i:x:M:a:";
             }
         } else { /* Non-Blocking */
-            optstring = "+:hvfm:i:x:M:t:a:";
+            optstring = "+:hvfcm:i:x:M:t:a:";
             if (accel_enabled) {
-                optstring = (CUDA_KERNEL_ENABLED) ? "+:d:hvfm:i:x:M:t:r:a:" : "+:d:hvfm:i:x:M:t:a:";
+                optstring = (CUDA_KERNEL_ENABLED) ? "+:d:hvcfm:i:x:M:t:r:a:" : "+:d:hvcfm:i:x:M:t:a:";
             }
         }
     } else if (options.bench == ONE_SIDED) {
         optstring = (accel_enabled) ? "+:w:s:hvm:d:x:i:" : "+:w:s:hvm:x:i:";
     } else if (options.bench == MBW_MR){
-        optstring = (accel_enabled) ? "p:W:R:x:i:m:d:Vhv" : "p:W:R:x:i:m:Vhv";
+        optstring = (accel_enabled) ? "p:W:R:x:i:m:d:Vhcv" : "p:W:R:x:i:m:Vhcv";
     } else if (options.bench == OSHM || options.bench == UPC || options.bench == UPCXX) {
         optstring = ":hvfm:i:M:";
     } else {
@@ -530,7 +531,7 @@ int process_options (int argc, char *argv[])
     while ((c = getopt_long(argc, argv, optstring, long_options, &option_index)) != -1) {
         bad_usage.opt = c;
         bad_usage.optarg = NULL;
-        bad_usage.message = NULL;
+    bad_usage.message = NULL;
 
         switch(c) {
             case 'h':
@@ -706,6 +707,9 @@ int process_options (int argc, char *argv[])
                 bad_usage.message = "Option Missing Required Argument";
                 bad_usage.opt = optopt;
                 return PO_BAD_USAGE;
+            case 'c':
+                options.cpy_dtoh = 1;
+                break;
             default:
                 bad_usage.message = "Invalid option";
                 bad_usage.opt = optopt;
