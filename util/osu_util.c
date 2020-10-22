@@ -708,7 +708,7 @@ int process_options (int argc, char *argv[])
                 bad_usage.opt = optopt;
                 return PO_BAD_USAGE;
             case 'c':
-                options.cpy_dtoh = 1;
+                options.cpy_from_d = 1;
                 break;
             default:
                 bad_usage.message = "Invalid option";

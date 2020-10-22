@@ -266,7 +266,7 @@ struct options_t {
     int print_rate;
     int pairs;
 
-    int cpy_dtoh;
+    int cpy_from_d;
 };
 
 struct bad_usage_t{

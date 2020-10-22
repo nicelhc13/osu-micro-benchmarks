@@ -117,7 +117,7 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    if (options.cpy_dtoh) {
+    if (options.cpy_from_d) {
         if (cudaMalloc((void **) &r_gpubuf, options.max_message_size)) {
             fprintf(stderr, "Error allocating receiving GPU memory %lu\n", options.max_message_size);
             return 1;
@@ -285,7 +285,7 @@ int main(int argc, char *argv[])
 
    free_memory_pt2pt_mul(s_buf, r_buf, rank, options.pairs);
 
-   if (options.cpy_dtoh) {
+   if (options.cpy_from_d) {
        cudaFree(r_gpubuf);
        cudaFree(s_gpubuf);
    }
@@ -302,7 +302,7 @@ double calc_bw(int rank, int size, int num_pairs, int window_size,
     double t_start = 0, t_end = 0, t = 0, sum_time = 0, bw = 0;
     int i, j, target;
 
-    if (options.cpy_dtoh && (is_hh || is_dd)) {
+    if (options.cpy_from_d && (is_hh || is_dd)) {
         cudaDeviceSynchronize();
         if (is_hh) {
             options.src = 'D';
@@ -331,7 +331,7 @@ double calc_bw(int rank, int size, int num_pairs, int window_size,
                 t_start = MPI_Wtime();
             }
 
-            if (options.cpy_dtoh) {
+            if (options.cpy_from_d) {
                 if (is_hh) {
                     cudaMemcpy(s_buf, s_gpubuf, size, cudaMemcpyDeviceToHost);
                 } else if (is_dd) {
@@ -347,7 +347,7 @@ double calc_bw(int rank, int size, int num_pairs, int window_size,
             MPI_CHECK(MPI_Recv(r_buf, 4, MPI_CHAR, target, 101, MPI_COMM_WORLD,
                     &mbw_reqstat[0]));
 
-            if (options.cpy_dtoh) {
+            if (options.cpy_from_d) {
                 if (is_hh) {
                     cudaMemcpy(r_gpubuf, r_buf, size, cudaMemcpyHostToDevice);
                 } else if (is_dd) {
@@ -373,7 +373,7 @@ double calc_bw(int rank, int size, int num_pairs, int window_size,
             }
 
             MPI_CHECK(MPI_Waitall(window_size, mbw_request, mbw_reqstat));
-            if (options.cpy_dtoh) {
+            if (options.cpy_from_d) {
                 if (is_hh) {
                     cudaMemcpy(r_gpubuf, r_buf, size, cudaMemcpyHostToDevice);
                 } else if (is_dd) {
@@ -381,7 +381,7 @@ double calc_bw(int rank, int size, int num_pairs, int window_size,
                 }
             }
 
-            if (options.cpy_dtoh) {
+            if (options.cpy_from_d) {
                 if (is_hh) {
                     cudaMemcpy(s_buf, s_gpubuf, size, cudaMemcpyDeviceToHost);
                 } else if (is_dd) {

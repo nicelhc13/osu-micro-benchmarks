@@ -72,7 +72,7 @@ main (int argc, char *argv[])
 
     bufsize = options.max_message_size * numprocs;
 
-    if (options.cpy_dtoh) {
+    if (options.cpy_from_d) {
         if (cudaMalloc((void **) &recvbuf_gpu, bufsize)) {
             fprintf(stderr, "Error allocating receiving GPU memory %lu\n",
                     options.max_message_size);
@@ -100,7 +100,7 @@ main (int argc, char *argv[])
         MPI_CHECK(MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE));
     }
 
-    if (options.cpy_dtoh && (is_hh || is_dd)) {
+    if (options.cpy_from_d && (is_hh || is_dd)) {
         enum accel_type old_accel = options.accel;
         options.accel = CUDA;
         set_buffer(sendbuf_gpu, options.accel, 1, bufsize);
@@ -130,7 +130,7 @@ main (int argc, char *argv[])
         for (i=0; i < options.iterations + options.skip ; i++) {
             t_start = MPI_Wtime();
 
-            if (options.cpy_dtoh) {
+            if (options.cpy_from_d) {
                 if (is_hh) {
                     cudaMemcpy(sendbuf, sendbuf_gpu,
                                bufsize, cudaMemcpyDeviceToHost);
@@ -141,7 +141,7 @@ main (int argc, char *argv[])
             }
             MPI_CHECK(MPI_Alltoall(sendbuf, size, MPI_CHAR, recvbuf, size, MPI_CHAR,
                     MPI_COMM_WORLD));
-            if (options.cpy_dtoh) {
+            if (options.cpy_from_d) {
                 if (is_hh) {
                     cudaMemcpy(recvbuf_gpu, recvbuf,
                                bufsize, cudaMemcpyHostToDevice);
@@ -175,7 +175,7 @@ main (int argc, char *argv[])
     free_buffer(sendbuf, options.accel);
     free_buffer(recvbuf, options.accel);
 
-    if (options.cpy_dtoh) {
+    if (options.cpy_from_d) {
         cudaFree(sendbuf_gpu);
         cudaFree(recvbuf_gpu);
     }
