@@ -98,11 +98,13 @@ main (int argc, char *argv[])
 
     if (options.cpy_from_d) {
         if (cudaMalloc((void **) &r_gpubuf, options.max_message_size)) {
-            fprintf(stderr, "Error allocating receiving GPU memory %lu\n", options.max_message_size);
+            fprintf(stderr, "Error allocating receiving GPU memory %lu\n",
+                    options.max_message_size);
             return 1;
         }
         if (cudaMalloc((void **) &s_gpubuf, options.max_message_size)) {
-            fprintf(stderr, "Error allocating sending GPU memory %lu\n", options.max_message_size);
+            fprintf(stderr, "Error allocating sending GPU memory %lu\n",
+                    options.max_message_size);
             return 1;
         }
 
@@ -114,6 +116,31 @@ main (int argc, char *argv[])
         } else if (options.src == 'D' && options.dst == 'D') {
             if (myid == 0) {
                 printf("** GPU to GPU\n");
+            }
+            is_dd = 1;
+        }
+    } else if (options.cpy_from_c) {
+        if ((r_cpubuf =
+            (char *) malloc(options.max_message_size)) == NULL) {
+            fprintf(stderr, "Error allocating receiving CPU memory %lu\n",
+                    options.max_message_size);
+            return 1;
+        }
+        if ((s_cpubuf =
+            (char *) malloc(options.max_message_size)) == NULL){
+            fprintf(stderr, "Error allocating sending CPU memory %lu\n",
+                    options.max_message_size);
+            return 1;
+        }
+
+        if (options.src == 'H' && options.dst == 'H') {
+            if (myid == 0) {
+                printf("** Host to Host (Copy H to H)\n");
+            }
+            is_hh = 1;
+        } else if (options.src == 'D' && options.dst == 'D') {
+            if (myid == 0) {
+                printf("** Device to Device (Copy H to D)\n");
             }
             is_dd = 1;
         }
@@ -132,6 +159,16 @@ main (int argc, char *argv[])
               options.dst = 'H';
             } else {
               set_buffer_pt2pt(s_gpubuf, myid, options.accel, 'a', size);
+            }
+        } else if (options.cpy_from_c && (is_hh || is_dd)) {
+            if (is_hh) {
+              set_buffer_pt2pt(s_cpubuf, myid, options.accel, 'a', size);
+            } else {
+              options.src = 'H';
+              options.dst = 'H';
+              set_buffer_pt2pt(s_cpubuf, myid, options.accel, 'a', size);
+              options.src = 'D';
+              options.dst = 'D';
             }
         } else {
             set_buffer_pt2pt(s_buf, myid, options.accel, 'a', size);
@@ -157,7 +194,12 @@ main (int argc, char *argv[])
                     } else if (is_dd) {
                         cudaMemcpy(s_buf, s_gpubuf, size, cudaMemcpyDeviceToDevice);
                     }
-                    cudaDeviceSynchronize();
+                } else if (options.cpy_from_c) {
+                    if (is_hh) {
+                        memcpy(s_buf, s_cpubuf, size);
+                    } else if (is_dd) {
+                        cudaMemcpy(s_buf, s_cpubuf, size, cudaMemcpyHostToDevice);
+                    }
                 }
 
                 MPI_CHECK(MPI_Send(s_buf, size, MPI_CHAR, 1, 1, MPI_COMM_WORLD));
@@ -169,7 +211,12 @@ main (int argc, char *argv[])
                     } else if (is_dd) {
                         cudaMemcpy(r_gpubuf, r_buf, size, cudaMemcpyDeviceToDevice);
                     }
-                    cudaDeviceSynchronize();
+                } else if (options.cpy_from_c) {
+                    if (is_hh) {
+                        memcpy(r_cpubuf, r_buf, size);
+                    } else if (is_dd) {
+                        cudaMemcpy(r_cpubuf, r_buf, size, cudaMemcpyDeviceToHost);
+                    }
                 }
             }
 
@@ -185,7 +232,12 @@ main (int argc, char *argv[])
                     } else if (is_dd) {
                         cudaMemcpy(r_gpubuf, r_buf, size, cudaMemcpyDeviceToDevice);
                     }
-                    cudaDeviceSynchronize();
+                } else if (options.cpy_from_c) {
+                    if (is_hh) {
+                        memcpy(r_cpubuf, r_buf, size);
+                    } else if (is_dd) {
+                        cudaMemcpy(r_cpubuf, r_buf, size, cudaMemcpyDeviceToHost);
+                    }
                 }
 
                 if (options.cpy_from_d) {
@@ -194,7 +246,12 @@ main (int argc, char *argv[])
                     } else if (is_dd) {
                         cudaMemcpy(s_buf, s_gpubuf, size, cudaMemcpyDeviceToDevice);
                     }
-                    cudaDeviceSynchronize();
+                } else if (options.cpy_from_c) {
+                    if (is_hh) {
+                        memcpy(s_buf, s_cpubuf, size);
+                    } else if (is_dd) {
+                        cudaMemcpy(s_buf, s_cpubuf, size, cudaMemcpyHostToDevice);
+                    }
                 }
 
                 MPI_CHECK(MPI_Send(s_buf, size, MPI_CHAR, 0, 1, MPI_COMM_WORLD));
@@ -215,6 +272,9 @@ main (int argc, char *argv[])
     if (options.cpy_from_d) {
         cudaFree(r_gpubuf);
         cudaFree(s_gpubuf);
+    } else if (options.cpy_from_c) {
+        free(r_cpubuf);
+        free(s_cpubuf);
     }
     MPI_CHECK(MPI_Finalize());
 

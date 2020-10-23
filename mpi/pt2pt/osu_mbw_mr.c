@@ -22,7 +22,8 @@ MPI_Status * mbw_reqstat;
 
 double calc_bw(int rank, int size, int num_pairs, int window_size,
                int is_hh, int is_dd, char *s_buf, char *r_buf,
-               char *s_gpubuf, char *r_gpubuf);
+               char *s_gpubuf, char *r_gpubuf,
+               char *s_cpubuf, char *r_cpubuf);
 
 
 static int loop_override;
@@ -32,6 +33,7 @@ int main(int argc, char *argv[])
 {
     char *s_buf, *r_buf;
     char *s_gpubuf, *r_gpubuf;
+    char *s_cpubuf, *r_cpubuf;
     int numprocs, rank;
     int c, curr_size;
     int is_hh = 0, is_dd = 0;
@@ -119,11 +121,13 @@ int main(int argc, char *argv[])
 
     if (options.cpy_from_d) {
         if (cudaMalloc((void **) &r_gpubuf, options.max_message_size)) {
-            fprintf(stderr, "Error allocating receiving GPU memory %lu\n", options.max_message_size);
+            fprintf(stderr, "Error allocating receiving GPU memory %lu\n",
+                    options.max_message_size);
             return 1;
         }
         if (cudaMalloc((void **) &s_gpubuf, options.max_message_size)) {
-            fprintf(stderr, "Error allocating sending GPU memory %lu\n", options.max_message_size);
+            fprintf(stderr, "Error allocating sending GPU memory %lu\n",
+                    options.max_message_size);
             return 1;
         }
 
@@ -138,7 +142,33 @@ int main(int argc, char *argv[])
             }
             is_dd = 1;
         }
+    } else if (options.cpy_from_c) {
+        if ((r_cpubuf =
+            (char *) malloc(options.max_message_size)) == NULL) {
+            fprintf(stderr, "Error allocating receiving GPU memory %lu\n",
+                    options.max_message_size);
+            return 1;
+        }
+        if ((s_cpubuf =
+            (char *) malloc(options.max_message_size)) == NULL) {
+            fprintf(stderr, "Error allocating sending GPU memory %lu\n",
+                    options.max_message_size);
+            return 1;
+        }
+
+        if (options.src == 'H' && options.dst == 'H') {
+            if (rank == 0) {
+                printf("** Host to Host (Copy H to H)\n");
+            }
+            is_hh = 1;
+        } else if (options.src == 'D' && options.dst == 'D') {
+            if (rank == 0) {
+                printf("** GPU to GPU (Copy H to D)\n");
+            }
+            is_dd = 1;
+        }
     }
+
 
 
     if(rank == 0) {
@@ -214,7 +244,8 @@ int main(int argc, char *argv[])
            for(i = 0; i < WINDOW_SIZES_COUNT; i++) {
                bandwidth_results[j][i] = calc_bw(rank, curr_size, options.pairs,
                                                  window_array[i], is_hh, is_dd,
-                                                 s_buf, r_buf, s_gpubuf, r_gpubuf);
+                                                 s_buf, r_buf, s_gpubuf, r_gpubuf,
+                                                 s_cpubuf, r_cpubuf);
 
                if(rank == 0) {
                    fprintf(stdout, "  %10.*f", FLOAT_PRECISION,
@@ -264,7 +295,8 @@ int main(int argc, char *argv[])
            double bw, rate;
 
            bw = calc_bw(rank, curr_size, options.pairs, options.window_size,
-                        is_hh, is_dd, s_buf, r_buf, s_gpubuf, r_gpubuf);
+                        is_hh, is_dd, s_buf, r_buf, s_gpubuf, r_gpubuf,
+                        s_cpubuf, r_cpubuf);
 
            if(rank == 0) {
                rate = 1e6 * bw / curr_size;
@@ -288,6 +320,9 @@ int main(int argc, char *argv[])
    if (options.cpy_from_d) {
        cudaFree(r_gpubuf);
        cudaFree(s_gpubuf);
+   } else if (options.cpy_from_c) {
+       free(r_cpubuf);
+       free(s_cpubuf);
    }
 
    MPI_CHECK(MPI_Finalize());
@@ -297,13 +332,13 @@ int main(int argc, char *argv[])
 
 double calc_bw(int rank, int size, int num_pairs, int window_size,
                int is_hh, int is_dd, char *s_buf, char *r_buf,
-               char *s_gpubuf, char *r_gpubuf)
+               char *s_gpubuf, char *r_gpubuf,
+               char *s_cpubuf, char *r_cpubuf)
 {
     double t_start = 0, t_end = 0, t = 0, sum_time = 0, bw = 0;
     int i, j, target;
 
     if (options.cpy_from_d && (is_hh || is_dd)) {
-        cudaDeviceSynchronize();
         if (is_hh) {
             options.src = 'D';
             options.dst = 'D';
@@ -311,9 +346,21 @@ double calc_bw(int rank, int size, int num_pairs, int window_size,
                              'a', size);
             options.src = 'H';
             options.dst = 'H';
-        } else if (is_dd) {
+        } else {
             set_buffer_pt2pt(s_gpubuf, rank, options.accel,
                              'a', size);
+        }
+    } else if (options.cpy_from_c && (is_hh || is_dd)) {
+        if (is_hh) {
+            set_buffer_pt2pt(s_cpubuf, rank, options.accel,
+                             'a', size);
+        } else {
+            options.src = 'H';
+            options.dst = 'H';
+            set_buffer_pt2pt(s_cpubuf, rank, options.accel,
+                             'a', size);
+            options.src = 'D';
+            options.dst = 'D';
         }
     } else {
         set_buffer_pt2pt(s_buf, rank, options.accel, 'a', size);
@@ -337,6 +384,12 @@ double calc_bw(int rank, int size, int num_pairs, int window_size,
                 } else if (is_dd) {
                     cudaMemcpy(s_buf, s_gpubuf, size, cudaMemcpyDeviceToDevice);
                 }
+            } else if (options.cpy_from_c) {
+                if (is_hh) {
+                    memcpy(s_buf, s_cpubuf, size);
+                } else if (is_dd) {
+                    cudaMemcpy(s_buf, s_cpubuf, size, cudaMemcpyHostToDevice);
+                }
             }
 
             for(j = 0; j < window_size; j++) {
@@ -352,6 +405,12 @@ double calc_bw(int rank, int size, int num_pairs, int window_size,
                     cudaMemcpy(r_gpubuf, r_buf, size, cudaMemcpyHostToDevice);
                 } else if (is_dd) {
                     cudaMemcpy(r_gpubuf, r_buf, size, cudaMemcpyDeviceToDevice);
+                }
+            } else if (options.cpy_from_c) {
+                if (is_hh) {
+                    memcpy(r_cpubuf, r_buf, size);
+                } else if (is_dd) {
+                    cudaMemcpy(r_cpubuf, r_buf, size, cudaMemcpyDeviceToHost);
                 }
             }
         }
@@ -379,6 +438,12 @@ double calc_bw(int rank, int size, int num_pairs, int window_size,
                 } else if (is_dd) {
                     cudaMemcpy(r_gpubuf, r_buf, size, cudaMemcpyDeviceToDevice);
                 }
+            } else if (options.cpy_from_c) {
+                if (is_hh) {
+                    memcpy(r_cpubuf, r_buf, size);
+                } else if (is_dd) {
+                    cudaMemcpy(r_cpubuf, r_buf, size, cudaMemcpyDeviceToHost);
+                }
             }
 
             if (options.cpy_from_d) {
@@ -386,6 +451,12 @@ double calc_bw(int rank, int size, int num_pairs, int window_size,
                     cudaMemcpy(s_buf, s_gpubuf, size, cudaMemcpyDeviceToHost);
                 } else if (is_dd) {
                     cudaMemcpy(s_buf, s_gpubuf, size, cudaMemcpyDeviceToDevice);
+                }
+            } else if (options.cpy_from_c) {
+                if (is_hh) {
+                    memcpy(s_buf, s_cpubuf, size);
+                } else if (is_dd) {
+                    cudaMemcpy(s_buf, s_cpubuf, size, cudaMemcpyHostToDevice);
                 }
             }
 
