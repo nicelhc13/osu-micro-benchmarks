@@ -10,6 +10,8 @@
  */
 #include <osu_util_mpi.h>
 
+//#define SDH_HDS_MODE
+
 int
 main (int argc, char *argv[])
 {
@@ -19,6 +21,7 @@ main (int argc, char *argv[])
     double avg_time = 0.0, max_time = 0.0, min_time = 0.0;
     char * sendbuf = NULL, * recvbuf = NULL;
     char * sendbuf_gpu = NULL, * recvbuf_gpu = NULL;
+    char * tsendbuf_gpu = NULL, * trecvbuf_gpu = NULL;
     char * sendbuf_cpu = NULL, * recvbuf_cpu = NULL;
     int is_hh = 0, is_dd = 0;
     int po_ret;
@@ -88,6 +91,17 @@ main (int argc, char *argv[])
                 printf("** Host to Host\n");
             }
             is_hh = 1;
+#ifdef SDH_HDS_MODE
+            printf("SDH HDS mode is enabled\n");
+            if (cudaMalloc((void **) &trecvbuf_gpu, bufsize)) {
+                fprintf(stderr, "Error allocating receiving tGPU memory %lu\n",
+                        options.max_message_size);
+            }
+            if (cudaMalloc((void **) &tsendbuf_gpu, bufsize)) {
+                fprintf(stderr, "Error allocating sending tGPU memory %lu\n",
+                        options.max_message_size);
+            }
+#endif
         } else if (options.src == 'D' && options.dst == 'D') {
             if (rank == 0) {
                 printf("** Device to Device\n");
@@ -159,8 +173,15 @@ main (int argc, char *argv[])
 
             if (options.cpy_from_d) {
                 if (is_hh) {
+#ifdef SDH_HDS_MODE
+                    cudaMemcpy(tsendbuf_gpu, sendbuf_gpu,
+                               bufsize, cudaMemcpyDeviceToDevice);
+                    cudaMemcpy(sendbuf, tsendbuf_gpu,
+                               bufsize, cudaMemcpyDeviceToHost);
+#else
                     cudaMemcpy(sendbuf, sendbuf_gpu,
                                bufsize, cudaMemcpyDeviceToHost);
+#endif
                 } else if (is_dd) {
                     cudaMemcpy(sendbuf, sendbuf_gpu,
                                bufsize, cudaMemcpyDeviceToDevice);
@@ -177,8 +198,15 @@ main (int argc, char *argv[])
                     MPI_COMM_WORLD));
             if (options.cpy_from_d) {
                 if (is_hh) {
+#ifdef SDH_HDS_MODE
                     cudaMemcpy(recvbuf_gpu, recvbuf,
                                bufsize, cudaMemcpyHostToDevice);
+                    cudaMemcpy(trecvbuf_gpu, recvbuf_gpu,
+                               bufsize, cudaMemcpyDeviceToDevice);
+#else
+                    cudaMemcpy(recvbuf_gpu, recvbuf,
+                               bufsize, cudaMemcpyHostToDevice);
+#endif
                 } else if (is_dd) {
                     cudaMemcpy(recvbuf_gpu, recvbuf,
                                bufsize, cudaMemcpyDeviceToDevice);
@@ -220,6 +248,10 @@ main (int argc, char *argv[])
     if (options.cpy_from_d) {
         cudaFree(sendbuf_gpu);
         cudaFree(recvbuf_gpu);
+#ifdef SDH_HDS_MODE
+        cudaFree(tsendbuf_gpu);
+        cudaFree(trecvbuf_gpu);
+#endif
     } else if (options.cpy_from_c) {
         free(sendbuf_cpu);
         free(recvbuf_cpu);

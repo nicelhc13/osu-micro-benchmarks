@@ -17,12 +17,15 @@
 #   define HEADER "# " BENCHMARK "\n"
 #endif
 
+//#define SDH_HDS_MODE
+
 MPI_Request * mbw_request;
 MPI_Status * mbw_reqstat;
 
 double calc_bw(int rank, int size, int num_pairs, int window_size,
                int is_hh, int is_dd, char *s_buf, char *r_buf,
                char *s_gpubuf, char *r_gpubuf,
+               char *ts_gpubuf, char *tr_gpubuf,
                char *s_cpubuf, char *r_cpubuf);
 
 
@@ -34,6 +37,7 @@ int main(int argc, char *argv[])
     char *s_buf, *r_buf;
     char *s_gpubuf, *r_gpubuf;
     char *s_cpubuf, *r_cpubuf;
+    char *ts_gpubuf, *tr_gpubuf;
     int numprocs, rank;
     int c, curr_size;
     int is_hh = 0, is_dd = 0;
@@ -136,6 +140,19 @@ int main(int argc, char *argv[])
                 printf("** Host to Host\n");
             }
             is_hh = 1;
+#ifdef SDH_HDS_MODE
+            printf("SDH HDS mode is enabled\n");
+            if (cudaMalloc((void **) &tr_gpubuf, options.max_message_size)) {
+                fprintf(stderr, "Error allocating receiving tGPU memory %lu\n",
+                        options.max_message_size);
+                return 1;
+            }
+            if (cudaMalloc((void **) &ts_gpubuf, options.max_message_size)) {
+                fprintf(stderr, "Error allocating sending tGPU memory %lu\n",
+                        options.max_message_size);
+                return 1;
+            }
+#endif
         } else if (options.src == 'D' && options.dst == 'D') {
             if (rank == 0) {
                 printf("** GPU to GPU\n");
@@ -245,6 +262,7 @@ int main(int argc, char *argv[])
                bandwidth_results[j][i] = calc_bw(rank, curr_size, options.pairs,
                                                  window_array[i], is_hh, is_dd,
                                                  s_buf, r_buf, s_gpubuf, r_gpubuf,
+                                                 ts_gpubuf, tr_gpubuf,
                                                  s_cpubuf, r_cpubuf);
 
                if(rank == 0) {
@@ -296,7 +314,7 @@ int main(int argc, char *argv[])
 
            bw = calc_bw(rank, curr_size, options.pairs, options.window_size,
                         is_hh, is_dd, s_buf, r_buf, s_gpubuf, r_gpubuf,
-                        s_cpubuf, r_cpubuf);
+                        ts_gpubuf, tr_gpubuf, s_cpubuf, r_cpubuf);
 
            if(rank == 0) {
                rate = 1e6 * bw / curr_size;
@@ -320,6 +338,10 @@ int main(int argc, char *argv[])
    if (options.cpy_from_d) {
        cudaFree(r_gpubuf);
        cudaFree(s_gpubuf);
+#ifdef SDH_HDS_MODE
+       cudaFree(tr_gpubuf);
+       cudaFree(ts_gpubuf);
+#endif
    } else if (options.cpy_from_c) {
        free(r_cpubuf);
        free(s_cpubuf);
@@ -333,6 +355,7 @@ int main(int argc, char *argv[])
 double calc_bw(int rank, int size, int num_pairs, int window_size,
                int is_hh, int is_dd, char *s_buf, char *r_buf,
                char *s_gpubuf, char *r_gpubuf,
+               char *ts_gpubuf, char *tr_gpubuf,
                char *s_cpubuf, char *r_cpubuf)
 {
     double t_start = 0, t_end = 0, t = 0, sum_time = 0, bw = 0;
@@ -380,7 +403,12 @@ double calc_bw(int rank, int size, int num_pairs, int window_size,
 
             if (options.cpy_from_d) {
                 if (is_hh) {
+#ifdef SDH_HDS_MODE
+                    cudaMemcpy(ts_gpubuf, s_gpubuf, size, cudaMemcpyDeviceToDevice);
+                    cudaMemcpy(s_buf, ts_gpubuf, size, cudaMemcpyDeviceToHost);
+#else
                     cudaMemcpy(s_buf, s_gpubuf, size, cudaMemcpyDeviceToHost);
+#endif
                 } else if (is_dd) {
                     cudaMemcpy(s_buf, s_gpubuf, size, cudaMemcpyDeviceToDevice);
                 }
@@ -402,7 +430,12 @@ double calc_bw(int rank, int size, int num_pairs, int window_size,
 
             if (options.cpy_from_d) {
                 if (is_hh) {
+#ifdef SDH_HDS_MODE
                     cudaMemcpy(r_gpubuf, r_buf, size, cudaMemcpyHostToDevice);
+                    cudaMemcpy(tr_gpubuf, r_gpubuf, size, cudaMemcpyDeviceToDevice);
+#else
+                    cudaMemcpy(r_gpubuf, r_buf, size, cudaMemcpyHostToDevice);
+#endif
                 } else if (is_dd) {
                     cudaMemcpy(r_gpubuf, r_buf, size, cudaMemcpyDeviceToDevice);
                 }
@@ -434,7 +467,12 @@ double calc_bw(int rank, int size, int num_pairs, int window_size,
             MPI_CHECK(MPI_Waitall(window_size, mbw_request, mbw_reqstat));
             if (options.cpy_from_d) {
                 if (is_hh) {
+#ifdef SDH_HDS_MODE
                     cudaMemcpy(r_gpubuf, r_buf, size, cudaMemcpyHostToDevice);
+                    cudaMemcpy(tr_gpubuf, r_gpubuf, size, cudaMemcpyDeviceToDevice);
+#else
+                    cudaMemcpy(r_gpubuf, r_buf, size, cudaMemcpyHostToDevice);
+#endif
                 } else if (is_dd) {
                     cudaMemcpy(r_gpubuf, r_buf, size, cudaMemcpyDeviceToDevice);
                 }
@@ -448,7 +486,12 @@ double calc_bw(int rank, int size, int num_pairs, int window_size,
 
             if (options.cpy_from_d) {
                 if (is_hh) {
+#ifdef SDH_HDS_MODE
+                    cudaMemcpy(ts_gpubuf, s_gpubuf, size, cudaMemcpyDeviceToDevice);
+                    cudaMemcpy(s_buf, ts_gpubuf, size, cudaMemcpyDeviceToHost);
+#else
                     cudaMemcpy(s_buf, s_gpubuf, size, cudaMemcpyDeviceToHost);
+#endif
                 } else if (is_dd) {
                     cudaMemcpy(s_buf, s_gpubuf, size, cudaMemcpyDeviceToDevice);
                 }

@@ -267,6 +267,7 @@ struct options_t {
     int pairs;
 
     int cpy_from_d;
+    int cpy_from_c;
 };
 
 struct bad_usage_t{
