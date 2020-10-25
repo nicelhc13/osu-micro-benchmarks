@@ -405,6 +405,7 @@ int process_options (int argc, char *argv[])
             {"num-pairs",       required_argument,  0,  'p'},
             {"vary-window",     required_argument,  0,  'V'},
             {"add-serialization",    no_argument,   0,  'S'},
+            {"copy-interleaved",     no_argument,   0,  'n'},
             {"copy-from-devices",    no_argument,   0,  'g'},
             {"copy-from-hosts",      no_argument,   0,  'c'}
     };
@@ -719,6 +720,9 @@ int process_options (int argc, char *argv[])
             case 'S':
                 options.add_serial = 1;
                 break;
+            case 'n':
+                options.intl_cpy = 1;
+                break;
             default:
                 bad_usage.message = "Invalid option";
                 bad_usage.opt = optopt;
@@ -791,6 +795,5 @@ void wtime(double *t)
     if (sec < 0) sec = tv.tv_sec;
     *t = (tv.tv_sec - sec)*1.0e+6 + tv.tv_usec;
 }
-
 
 /* vi:set sw=4 sts=4 tw=80: */
