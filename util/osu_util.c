@@ -404,6 +404,7 @@ int process_options (int argc, char *argv[])
             {"print-rate",      required_argument,  0,  'R'},
             {"num-pairs",       required_argument,  0,  'p'},
             {"vary-window",     required_argument,  0,  'V'},
+            {"add-serialization",    no_argument,   0,  'S'},
             {"copy-from-devices",    no_argument,   0,  'g'},
             {"copy-from-hosts",      no_argument,   0,  'c'}
     };
@@ -413,43 +414,43 @@ int process_options (int argc, char *argv[])
     if (options.bench == PT2PT) {
         if (accel_enabled) {
             if (options.subtype == LAT_MT) {
-                optstring = "+:x:i:t:m:d:hvcg";
+                optstring = "+:x:i:t:m:d:hvcgS";
             } else if (options.subtype == LAT_MP) {
-                optstring = "+:x:i:t:m:d:hvcg";
+                optstring = "+:x:i:t:m:d:hvcgS";
             } else if (options.subtype == BW) {
-                optstring = "+:x:i:t:m:d:W:c:hvcg";
+                optstring = "+:x:i:t:m:d:W:c:hvcgS";
             } else {
-                optstring = "+:x:i:m:d:hvcg";
+                optstring = "+:x:i:m:d:hvcgS";
             }
         } else{
             if (options.subtype == LAT_MT) {
-                optstring = "+:hvcgm:x:i:t:";
+                optstring = "+:hvcgSm:x:i:t:";
             } else if (options.subtype == LAT_MP) {
-                optstring = "+:hvcgm:x:i:t:";
+                optstring = "+:hvcgSm:x:i:t:";
             } else if (options.subtype == BW) {
-                optstring = "+:hvcgm:x:i:t:W:";
+                optstring = "+:hvcgSm:x:i:t:W:";
             } else {
-                optstring = "+:hvcgm:x:i:";
+                optstring = "+:hvcgSm:x:i:";
             }
         }
     } else if (options.bench == COLLECTIVE) {
         if (options.subtype == LAT) { /* Blocking */
-            optstring = "+:hvfcgm:i:x:M:a:";
+            optstring = "+:hvfcgSm:i:x:M:a:";
             if (accel_enabled) {
-                optstring = (CUDA_KERNEL_ENABLED) ? "+:d:hvfcgm:i:x:M:r:a:" :
-                                                    "+:d:hvfcgm:i:x:M:a:";
+                optstring = (CUDA_KERNEL_ENABLED) ? "+:d:hvfcgSm:i:x:M:r:a:" :
+                                                    "+:d:hvfcgSm:i:x:M:a:";
             }
         } else { /* Non-Blocking */
-            optstring = "+:hvfcgm:i:x:M:t:a:";
+            optstring = "+:hvfcgSm:i:x:M:t:a:";
             if (accel_enabled) {
-                optstring = (CUDA_KERNEL_ENABLED) ? "+:d:hvcgfm:i:x:M:t:r:a:" :
-                                                    "+:d:hvcgfm:i:x:M:t:a:";
+                optstring = (CUDA_KERNEL_ENABLED) ? "+:d:hvcgSfm:i:x:M:t:r:a:" :
+                                                    "+:d:hvcgSfm:i:x:M:t:a:";
             }
         }
     } else if (options.bench == ONE_SIDED) {
         optstring = (accel_enabled) ? "+:w:s:hvm:d:x:i:" : "+:w:s:hvm:x:i:";
     } else if (options.bench == MBW_MR){
-        optstring = (accel_enabled) ? "p:W:R:x:i:m:d:Vhcgv" : "p:W:R:x:i:m:Vhcgv";
+        optstring = (accel_enabled) ? "p:W:R:x:i:m:d:VhcgSv" : "p:W:R:x:i:m:VhcgSv";
     } else if (options.bench == OSHM || options.bench == UPC || options.bench == UPCXX) {
         optstring = ":hvfm:i:M:";
     } else {
@@ -714,6 +715,9 @@ int process_options (int argc, char *argv[])
                 break;
             case 'c':
                 options.cpy_from_c = 1;
+                break;
+            case 'S':
+                options.add_serial = 1;
                 break;
             default:
                 bad_usage.message = "Invalid option";

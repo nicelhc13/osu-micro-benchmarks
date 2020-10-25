@@ -268,6 +268,7 @@ struct options_t {
 
     int cpy_from_d;
     int cpy_from_c;
+    int add_serial;
 };
 
 struct bad_usage_t{
