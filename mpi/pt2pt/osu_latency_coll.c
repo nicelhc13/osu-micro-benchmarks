@@ -24,7 +24,7 @@ main (int argc, char *argv[])
     char *r_cpubuf, *s_cpubuf;
     int is_hh = 0, is_dd = 0;
 
-    double t_start = 0.0, t_end = 0.0;
+    double t_start = 0.0, t_stop = 0.0;
     int po_ret = 0;
     options.bench = PT2PT;
     options.subtype = LAT;
@@ -44,6 +44,10 @@ main (int argc, char *argv[])
     MPI_CHECK(MPI_Init(&argc, &argv));
     MPI_CHECK(MPI_Comm_size(MPI_COMM_WORLD, &numprocs));
     MPI_CHECK(MPI_Comm_rank(MPI_COMM_WORLD, &myid));
+
+    /* Set devcies */
+    int gpu_id = myid % numprocs;
+    cudaSetDevice(gpu_id);
 
     if (0 == myid) {
         switch (po_ret) {
@@ -155,14 +159,13 @@ main (int argc, char *argv[])
 
     print_header(myid, LAT);
 
-    /* Set devcies */
-    int gpu_id = myid % numprocs;
-    cudaSetDevice(gpu_id);
-
+    /*
     pid_t pid = getpid();
     printf("Process %d sets %d GPU\n", myid, gpu_id);
     printf("Process ID %lun and rank %d\n", pid, myid);
+    */
   
+    double timer = 0.0, avg_time = 0.0, min_time = 0.0, max_time = 0.0;
     /* Latency test */
     for(size = options.min_message_size; size <= options.max_message_size; size = (size ? size * 2 : 1)) {
         if (options.cpy_from_d && (is_hh || is_dd)) {
@@ -196,11 +199,10 @@ main (int argc, char *argv[])
         }
 
         MPI_CHECK(MPI_Barrier(MPI_COMM_WORLD));
+        timer = 0.0;
 
         for(i = 0; i < options.iterations + options.skip; i++) {
-            if(i == options.skip) {
-                t_start = MPI_Wtime();
-            }
+            t_start = MPI_Wtime();
 
             /* Communication starts */
             for (int targetid = 0; targetid < numprocs; targetid++) {
@@ -264,17 +266,24 @@ main (int argc, char *argv[])
                   }
               }
             }
+
+            t_stop = MPI_Wtime();
+            if (i >= options.skip) {
+              timer += t_stop - t_start;
+            }
         }
+        double latency = (timer) * 1e6 / (2.0 * options.iterations);
 
-        t_end = MPI_Wtime();
 
-        if(myid == 0) {
-            double latency = (t_end - t_start) * 1e6 / (2.0 * options.iterations);
-
-            fprintf(stderr, "%-*d%*.*f\n", 10, size, FIELD_WIDTH,
-                    FLOAT_PRECISION, latency);
-            fflush(stderr);
-        }
+        MPI_CHECK(MPI_Reduce(&latency, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0,
+                  MPI_COMM_WORLD));
+        MPI_CHECK(MPI_Reduce(&latency, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0,
+                  MPI_COMM_WORLD));
+        MPI_CHECK(MPI_Reduce(&latency, &avg_time, 1, MPI_DOUBLE, MPI_SUM, 0,
+                  MPI_COMM_WORLD));
+        avg_time = avg_time/numprocs;
+        print_stats(myid, size, avg_time, min_time, max_time); 
+        MPI_CHECK(MPI_Barrier(MPI_COMM_WORLD));
     }
 
     free_memory(s_buf, r_buf, myid);
