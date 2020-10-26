@@ -155,6 +155,7 @@ main (int argc, char *argv[])
 
     print_header(myid, LAT);
 
+    /* Set devcies */
     int gpu_id = myid % numprocs;
     cudaSetDevice(gpu_id);
 
@@ -164,7 +165,6 @@ main (int argc, char *argv[])
   
     /* Latency test */
     for(size = options.min_message_size; size <= options.max_message_size; size = (size ? size * 2 : 1)) {
-        //fprintf(stderr, "Start:%d\n", myid);
         if (options.cpy_from_d && (is_hh || is_dd)) {
             if (is_hh) {
               options.src = 'D';
@@ -186,15 +186,9 @@ main (int argc, char *argv[])
               options.dst = 'D';
             }
         } else {
-            //fprintf(stderr, "%d send buffer sets: %p\n", myid, s_buf);
-            if (s_buf == NULL) { fprintf(stderr, "NULL\n"); }
-            //fprintf(stderr, "data is %c\n", s_buf[0]);
             set_buffer_pt2pt(s_buf, myid, options.accel, 'a', size);
-            //fprintf(stderr, "%d send buffer done\n", myid);
         }
-        //fprintf(stderr, "%d recv buffer sets\n", myid);
         set_buffer_pt2pt(r_buf, myid, options.accel, 'b', size);
-        //fprintf(stderr, "%d recv buffer done\n", myid);
 
         if(size > LARGE_MESSAGE_SIZE) {
             options.iterations = options.iterations_large;
@@ -203,24 +197,20 @@ main (int argc, char *argv[])
 
         MPI_CHECK(MPI_Barrier(MPI_COMM_WORLD));
 
-        //fprintf(stderr, "Msg sending starts %d\n", myid);
         for(i = 0; i < options.iterations + options.skip; i++) {
             if(i == options.skip) {
                 t_start = MPI_Wtime();
             }
 
-            // Communication starts.
+            /* Communication starts */
             for (int targetid = 0; targetid < numprocs; targetid++) {
               if (targetid == myid) { continue; }
 
-              //printf("from %d to %d\n", myid, targetid);
               MPI_Request recv_req;
-
-              //fprintf(stderr, "%d: Receiver statrts \n", myid);
               MPI_CHECK(MPI_Irecv(r_buf, size, MPI_CHAR, targetid,
                                   1, MPI_COMM_WORLD, &recv_req));
 
-              // Serializing sent buffers.
+              /* Serializing send buffer */
               if (options.cpy_from_d) {
                   if (is_hh) {
                       if (options.add_serial) {
@@ -243,18 +233,15 @@ main (int argc, char *argv[])
                   }
               }
 
-              //fprintf(stderr, "%d: Send statrts \n", myid);
               MPI_CHECK(MPI_Send(s_buf, size, MPI_CHAR, targetid,
                                  1, MPI_COMM_WORLD));
               int ready = 0;
-              //fprintf(stderr, "%d Test statrts \n", myid);
               MPI_CHECK(MPI_Test(&recv_req, &ready, MPI_STATUS_IGNORE));
               if (!ready) {
                 MPI_CHECK(MPI_Wait(&recv_req, MPI_STATUS_IGNORE));
               }
 
-              //fprintf(stderr, "%d Wait ends \n", myid);
-              // Serializing received buffers.
+              /* Deserialize receive buffer */
               if (options.cpy_from_d) {
                   if (is_hh) {
                       if (options.add_serial) {
@@ -276,7 +263,6 @@ main (int argc, char *argv[])
                       cudaMemcpy(r_cpubuf, r_buf, size, cudaMemcpyDeviceToHost);
                   }
               }
-              //fprintf(stderr, "%d Round done\n", myid);
             }
         }
 
