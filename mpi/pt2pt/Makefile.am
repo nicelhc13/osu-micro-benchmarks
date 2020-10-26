@@ -8,7 +8,7 @@ SUFFIXES = .cu .cpp
 	mv $@.ii $@
 
 pt2ptdir = $(pkglibexecdir)/mpi/pt2pt
-pt2pt_PROGRAMS = osu_bibw osu_bw osu_latency osu_mbw_mr osu_multi_lat
+pt2pt_PROGRAMS = osu_bibw osu_bw osu_latency osu_latency_coll osu_mbw_mr osu_multi_lat
 
 AM_CFLAGS = -I${top_srcdir}/util
 
@@ -24,6 +24,7 @@ endif
 osu_bw_SOURCES = osu_bw.c $(UTILITIES)
 osu_bibw_SOURCES = osu_bibw.c $(UTILITIES)
 osu_latency_SOURCES = osu_latency.c $(UTILITIES)
+osu_latency_coll_SOURCES = osu_latency_coll.c $(UTILITIES)
 osu_mbw_mr_SOURCES = osu_mbw_mr.c $(UTILITIES)
 osu_multi_lat_SOURCES = osu_multi_lat.c $(UTILITIES)
 osu_latency_mt_SOURCES = osu_latency_mt.c $(UTILITIES)

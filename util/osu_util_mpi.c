@@ -994,7 +994,8 @@ int allocate_memory_pt2pt (char ** sbuf, char ** rbuf, int rank)
                 }
             }
             break;
-        case 1:
+        //case 1:
+        default:
             if ('D' == options.dst) {
                 if (allocate_device_buffer(sbuf)) {
                     fprintf(stderr, "Error allocating cuda memory\n");
