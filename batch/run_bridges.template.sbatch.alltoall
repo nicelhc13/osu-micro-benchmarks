@@ -1,0 +1,53 @@
+#!/bin/bash
+#SBATCH --gres=gpu:p100:4
+#SBATCH --ntasks 8
+#SBATCH --ntasks-per-node=4
+#SBATCH --nodes=2
+#SBATCH -p gpu 
+#SBATCH -o alltoall.cpy.2.out
+#SBATCH -t 00:35:00
+#SBATCH --constraint=exclusive
+#SBATCH --mail-user=hochan@utexas.edu
+#SBATCH --mail-type=fail
+#SBATCH --mail-type=end
+#SBATCH --exclude=comet-33-15
+
+nvidia-smi
+
+source ~/.bash_profile
+
+module list
+RUN=mpirun
+mpirun --version
+
+export HFILE=`generate_pbs_nodefile`
+cat $HFILE | sort -u > hosts.txt.$SLURM_JOBID
+export OMP_NUM_THREADS=1
+export MV2_USE_CUDA=1
+export MV2_USE_GDR=1
+export MPI_THREAD_MULTIPLE=1
+export MV2_CPU_MAPPING=0
+export MV2_ENABLE_AFFINITY=0
+export LD_PRELOAD=/home/hlee89/bin/opt/mvapich2/gdr/2.3.4/mcast/no-openacc/cuda10.1/mofed4.7/mpirun/gnu4.8.5/lib64/libmpi.so
+export MV2_DEBUG_SHOW_BACKTRACE=1
+#export MV2_SHOW_ENV_INFO=1
+
+#echo "Device to Device (A2A)"
+#mpirun_rsh -export-all -hostfile hosts.txt.$SLURM_JOBID -np 8 ./osu_alltoall -m 0:40000000 -d cuda -r gpu
+
+#echo "S-Device to Device-S (A2A)"
+#mpirun_rsh -export-all -hostfile hosts.txt.$SLURM_JOBID -np 8 ./osu_alltoall -m 0:40000000 -g -d cuda -r gpu
+
+#echo "Host to Host (A2A)"
+#mpirun_rsh -export-all -hostfile hosts.txt.$SLURM_JOBID -np 8 ./osu_alltoall -m 0:40000000 -r gpu
+
+#echo "S-Host to Host-S (A2A)"
+#mpirun_rsh -export-all -hostfile hosts.txt.$SLURM_JOBID -np 8 ./osu_alltoall -m 0:40000000 -c -r gpu
+
+echo "D-Host to Host-D (A2A)"
+mpirun_rsh -export-all -hostfile hosts.txt.$SLURM_JOBID -np 8 ./osu_alltoall -m 0:40000000 -g -r gpu
+
+#echo "SD-Host to Host-DS (A2A)"
+#mpirun_rsh -export-all -hostfile hosts.txt.$SLURM_JOBID -np 8 ./osu_alltoall_sdh_hds -m 0:40000000 -g -r gpu
+
+rm hosts.txt.$SLURM_JOBID

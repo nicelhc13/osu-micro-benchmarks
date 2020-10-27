@@ -45,10 +45,6 @@ main (int argc, char *argv[])
     MPI_CHECK(MPI_Comm_size(MPI_COMM_WORLD, &numprocs));
     MPI_CHECK(MPI_Comm_rank(MPI_COMM_WORLD, &myid));
 
-    /* Set devcies */
-    int gpu_id = myid % numprocs;
-    cudaSetDevice(gpu_id);
-
     if (0 == myid) {
         switch (po_ret) {
             case PO_CUDA_NOT_AVAIL:

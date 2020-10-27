@@ -33,13 +33,25 @@ export MV2_SHOW_ENV_INFO=1
 echo "Device to Device (MBW_MR)"
 mpirun -np 8 ./osu_mbw_mr D D
 
+echo "S-Device to Device-S (MBW_MR)"
+mpirun -np 8 ./osu_mbw_mr -g D D
+
 echo "Host to Host (MBW_MR)"
 mpirun -np 8 ./osu_mbw_mr H H
 
-echo "Host to Device (MBW_MR)"
-mpirun -np 8 ./osu_mbw_mr H D
+echo "S-Host to Host-S (MBW_MR)"
+mpirun -np 8 ./osu_mbw_mr -c H H
 
-echo "Device to Host (MBW_MR)"
-mpirun -np 8 ./osu_mbw_mr D H
+echo "D-Host to Host-D (MBW_MR)"
+mpirun -np 8 ./osu_mbw_mr -g H H
+
+echo "SD-Host to Host-DS (MBW_MR)"
+mpirun -np 8 ./osu_mbw_mr_sdh_hds -g H H
+
+#echo "Host to Device (MBW_MR)"
+#mpirun -np 8 ./osu_mbw_mr H D
+
+#echo "Device to Host (MBW_MR)"
+#mpirun -np 8 ./osu_mbw_mr D H
 
 rm hosts.txt.$SLURM_JOBID
