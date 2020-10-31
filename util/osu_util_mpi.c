@@ -688,6 +688,36 @@ void print_stats_nbc (int rank, int size, double overall_time,
     fflush(stdout);
 }
 
+void print_stats_all (int rank, int size, double avg_time, double min_time, double max_time,
+                      double r_avg_time, double s_avg_time, double w_avg_time)
+{
+    if (rank) {
+        return;
+    }
+
+    if (options.show_size) {
+        fprintf(stdout, "%-*d", 5, size);
+        fprintf(stdout, "%*.*f", 10, FLOAT_PRECISION, avg_time);
+        fprintf(stdout, "%*.*f, ", 10, FLOAT_PRECISION, r_avg_time);
+        fprintf(stdout, "%*.*f", 10, FLOAT_PRECISION, s_avg_time);
+        fprintf(stdout, "%*.*f", 10, FLOAT_PRECISION, w_avg_time);
+    } else {
+        fprintf(stdout, "%*.*f", 17, FLOAT_PRECISION, avg_time);
+    }
+
+    if (options.show_full) {
+        fprintf(stdout, "%*.*f%*.*f%*lu\n",
+                FIELD_WIDTH, FLOAT_PRECISION, min_time,
+                FIELD_WIDTH, FLOAT_PRECISION, max_time,
+                12, options.iterations);
+    } else {
+        fprintf(stdout, "\n");
+    }
+
+    fflush(stdout);
+}
+
+
 void print_stats (int rank, int size, double avg_time, double min_time, double max_time)
 {
     if (rank) {

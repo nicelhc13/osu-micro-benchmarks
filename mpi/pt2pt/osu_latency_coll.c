@@ -12,6 +12,19 @@
 #include <unistd.h>
 #include <sys/types.h>
 
+double reduce_timer(double latency, double min_t, double max_t,
+                    double avg_t, int numprocs) {
+    MPI_CHECK(MPI_Reduce(&latency, &min_t, 1, MPI_DOUBLE, MPI_MIN, 0,
+              MPI_COMM_WORLD));
+    MPI_CHECK(MPI_Reduce(&latency, &max_t, 1, MPI_DOUBLE, MPI_MAX, 0,
+              MPI_COMM_WORLD));
+    MPI_CHECK(MPI_Reduce(&latency, &avg_t, 1, MPI_DOUBLE, MPI_SUM, 0,
+              MPI_COMM_WORLD));
+    avg_t = avg_t/numprocs;
+
+    return avg_t;
+}
+
 int
 main (int argc, char *argv[])
 {
@@ -162,6 +175,12 @@ main (int argc, char *argv[])
     */
   
     double timer = 0.0, avg_time = 0.0, min_time = 0.0, max_time = 0.0;
+    double r_timer = 0.0, r_avg_time = 0.0, r_min_time = 0.0, r_max_time = 0.0;
+    double r_start = 0.0, r_stop = 0.0;
+    double s_timer = 0.0, s_avg_time = 0.0, s_min_time = 0.0, s_max_time = 0.0;
+    double s_start = 0.0, s_stop = 0.0;
+    double w_timer = 0.0, w_avg_time = 0.0, w_min_time = 0.0, w_max_time = 0.0;
+    double w_start = 0.0, w_stop = 0.0;
     /* Latency test */
     for(size = options.min_message_size; size <= options.max_message_size; size = (size ? size * 2 : 1)) {
         if (options.cpy_from_d && (is_hh || is_dd)) {
@@ -204,9 +223,11 @@ main (int argc, char *argv[])
             for (int targetid = 0; targetid < numprocs; targetid++) {
               if (targetid == myid) { continue; }
 
+              r_start = MPI_Wtime(); 
               MPI_Request recv_req;
               MPI_CHECK(MPI_Irecv(r_buf, size, MPI_CHAR, targetid,
                                   1, MPI_COMM_WORLD, &recv_req));
+              r_stop = MPI_Wtime();
 
               /* Serializing send buffer */
               if (options.cpy_from_d) {
@@ -231,13 +252,18 @@ main (int argc, char *argv[])
                   }
               }
 
+              s_start = MPI_Wtime();
               MPI_CHECK(MPI_Send(s_buf, size, MPI_CHAR, targetid,
                                  1, MPI_COMM_WORLD));
+              s_stop = MPI_Wtime();
+
+              w_start = MPI_Wtime();
               int ready = 0;
               MPI_CHECK(MPI_Test(&recv_req, &ready, MPI_STATUS_IGNORE));
               if (!ready) {
                 MPI_CHECK(MPI_Wait(&recv_req, MPI_STATUS_IGNORE));
               }
+              w_stop = MPI_Wtime();
 
               /* Deserialize receive buffer */
               if (options.cpy_from_d) {
@@ -266,19 +292,30 @@ main (int argc, char *argv[])
             t_stop = MPI_Wtime();
             if (i >= options.skip) {
               timer += t_stop - t_start;
+              r_timer += r_start - r_stop;
+              s_timer += s_start - s_stop;
+              w_timer += w_start - w_stop;
             }
         }
         double latency = (timer) * 1e6 / (2.0 * options.iterations);
+        double r_latency = (r_timer) * 1e6 / (2.0 * options.iterations);
+        double s_latency = (s_timer) * 1e6 / (2.0 * options.iterations);
+        double w_latency = (w_timer) * 1e6 / (2.0 * options.iterations);
 
-
-        MPI_CHECK(MPI_Reduce(&latency, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0,
-                  MPI_COMM_WORLD));
-        MPI_CHECK(MPI_Reduce(&latency, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0,
-                  MPI_COMM_WORLD));
-        MPI_CHECK(MPI_Reduce(&latency, &avg_time, 1, MPI_DOUBLE, MPI_SUM, 0,
-                  MPI_COMM_WORLD));
-        avg_time = avg_time/numprocs;
-        print_stats(myid, size, avg_time, min_time, max_time); 
+        reduce_timer(latency, min_time, max_time,
+                     avg_time, numprocs);
+ 
+        reduce_timer(r_latency, r_min_time, r_max_time,
+                     r_avg_time, numprocs);
+ 
+        reduce_timer(s_latency, s_min_time, s_max_time,
+                     s_avg_time, numprocs);
+ 
+        reduce_timer(w_latency, w_min_time, w_max_time,
+                     w_avg_time, numprocs);
+        
+        print_stats_all(myid, size, avg_time, min_time, max_time,
+                        r_avg_time, s_avg_time, w_avg_time); 
         MPI_CHECK(MPI_Barrier(MPI_COMM_WORLD));
     }
 
